@@ -1,0 +1,948 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>promptInAja.ai — susun prompt yang tepat, in aja</title>
+<meta name="description" content="Jelaskan kebutuhanmu, promptInAja.ai bantu susun prompt yang siap pakai untuk AI apa pun." />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #12141c;
+  --surface: #1b1e29;
+  --surface-2: #232735;
+  --border: #333849;
+  --text: #ece8dd;
+  --text-muted: #9a9cab;
+  --accent: #e3a23c;
+  --accent-dim: #b9843a;
+  --accent-2: #6fc7b8;
+  --radius: 6px;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --font-sans: "IBM Plex Sans", system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+.hidden { display: none !important; }
+.hidden-input { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0,0,0,0); border: 0;
+}
+
+a { color: var(--accent-2); }
+
+/* ---------- header ---------- */
+.site-header {
+  border-bottom: 0.5px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  z-index: 10;
+}
+.header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+}
+.logo {
+  font-family: var(--font-mono);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.logo-accent { color: var(--accent); }
+.logo-dim { color: var(--text-muted); }
+
+/* ---------- buttons ---------- */
+button {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  cursor: pointer;
+  border-radius: var(--radius);
+  border: 0.5px solid transparent;
+}
+#saveKeyBtn, #generateBtn {
+  background: var(--accent);
+  color: #1a1305;
+  font-weight: 600;
+  padding: 10px 18px;
+  border: none;
+  transition: background 0.15s ease;
+}
+#saveKeyBtn:hover, #generateBtn:hover { background: #eeb058; }
+#generateBtn:disabled {
+  background: var(--surface-2);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+.btn-ghost {
+  background: transparent;
+  color: var(--text-muted);
+  border: 0.5px solid var(--border);
+  padding: 8px 14px;
+}
+.btn-ghost:hover { color: var(--text); border-color: var(--text-muted); }
+.btn-small { padding: 5px 10px; font-size: 12.5px; }
+
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visible {
+  outline: 2px solid var(--accent-2);
+  outline-offset: 2px;
+}
+
+/* ---------- settings panel ---------- */
+.settings-panel {
+  background: var(--surface);
+  border-bottom: 0.5px solid var(--border);
+  padding: 18px 0;
+}
+.settings-panel label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+.key-row { display: flex; gap: 8px; }
+#apiKeyInput {
+  flex: 1;
+  background: var(--surface-2);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.hint { font-size: 13px; color: var(--text-muted); margin: 10px 0 0; }
+.key-status { font-size: 13px; margin: 8px 0 0; color: var(--accent-2); min-height: 1em; }
+
+/* ---------- hero ---------- */
+.hero { padding: 56px 0 32px; }
+.hero h1 {
+  font-family: var(--font-mono);
+  font-size: 34px;
+  line-height: 1.15;
+  font-weight: 600;
+  margin: 0 0 14px;
+  max-width: 15ch;
+}
+.hero h1 em { font-style: normal; color: var(--accent); }
+.hero p { color: var(--text-muted); max-width: 46ch; margin: 0; }
+
+/* ---------- console ---------- */
+.console {
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+  margin-bottom: 40px;
+}
+.console-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.field { flex: 1; min-width: 160px; }
+.field label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+select, .custom-field {
+  width: 100%;
+  background: var(--surface-2);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  padding: 9px 10px;
+  font-family: var(--font-sans);
+  font-size: 14px;
+}
+.custom-field { margin-top: 6px; }
+
+.chat-log { display: flex; flex-direction: column; gap: 10px; margin-bottom: 4px; }
+.chat-log:not(:empty) { margin-bottom: 14px; }
+
+.bubble {
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  font-size: 14.5px;
+  max-width: 92%;
+}
+.bubble-user {
+  background: var(--surface-2);
+  align-self: flex-end;
+  border: 0.5px solid var(--border);
+}
+.bubble-question {
+  background: var(--surface-2);
+  border-left: 2px solid var(--accent-2);
+  align-self: flex-start;
+}
+.bubble-question .bubble-label { color: var(--accent-2); }
+
+.bubble-label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 5px;
+}
+
+.result-card {
+  background: var(--surface-2);
+  border: 0.5px solid var(--accent-dim);
+  border-radius: var(--radius);
+  padding: 14px;
+  align-self: stretch;
+}
+.result-card .bubble-label { color: var(--accent); }
+.result-card pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-sans);
+  font-size: 14.5px;
+  margin: 0 0 10px;
+}
+.result-note { color: var(--text-muted); font-size: 13px; margin: 0 0 10px; }
+.result-actions { display: flex; gap: 8px; }
+
+.composer {
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  padding: 10px;
+}
+textarea {
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: vertical;
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 15px;
+}
+.composer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius);
+  border: 0.5px solid var(--border);
+  cursor: pointer;
+  font-size: 16px;
+}
+.icon-btn:hover { border-color: var(--text-muted); }
+
+.image-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 8px;
+  background: var(--surface);
+  border-radius: var(--radius);
+}
+.image-preview img { height: 48px; width: 48px; object-fit: cover; border-radius: 4px; }
+
+/* ---------- history ---------- */
+.history { padding-bottom: 60px; }
+.history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.history-header h2 {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+}
+.history-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.history-item {
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  cursor: pointer;
+  background: var(--surface);
+}
+.history-item:hover { border-color: var(--text-muted); }
+.history-item-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.history-item-preview {
+  font-size: 13.5px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- footer ---------- */
+.site-footer {
+  border-top: 0.5px solid var(--border);
+  padding: 20px 0;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+@media (max-width: 480px) {
+  .hero h1 { font-size: 27px; }
+  .console-row { flex-direction: column; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}
+
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="wrap header-inner">
+    <span class="logo">promptIn<span class="logo-accent">Aja</span><span class="logo-dim">.ai</span></span>
+    <button id="settingsToggle" class="btn-ghost" type="button">Pengaturan</button>
+  </div>
+</header>
+
+<section id="settingsPanel" class="settings-panel hidden">
+  <div class="wrap">
+    <label for="apiKeyInput">Gemini API key kamu</label>
+    <div class="key-row">
+      <input type="password" id="apiKeyInput" placeholder="Tempel API key di sini" autocomplete="off" />
+      <button id="saveKeyBtn" type="button">Simpan</button>
+    </div>
+    <p class="hint">
+      Kunci ini tersimpan di browser kamu sendiri dan dikirim langsung ke Google saat generate — tidak lewat server kami.
+      Belum punya? <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Ambil gratis di Google AI Studio →</a>
+    </p>
+    <p id="keyStatus" class="key-status"></p>
+  </div>
+</section>
+
+<main class="wrap">
+
+  <section class="hero">
+    <h1>Susun prompt yang tepat,<br><em>in aja</em>.</h1>
+    <p>Jelaskan apa yang kamu butuhkan. Kalau instruksinya masih terlalu umum, promptInAja.ai akan tanya dulu sebelum kasih hasil final.</p>
+  </section>
+
+  <section class="console" aria-label="Alat generate prompt">
+
+    <div class="console-row">
+      <div class="field">
+        <label for="outputType">Jenis output</label>
+        <select id="outputType">
+          <option value="Teks">Teks</option>
+          <option value="Coding">Coding</option>
+          <option value="Gambar">Gambar</option>
+          <option value="Video">Video</option>
+          <option value="Audio">Audio</option>
+          <option value="lainnya">Lainnya…</option>
+        </select>
+        <input type="text" id="outputTypeCustom" class="custom-field hidden" placeholder="Tulis jenis output kamu" />
+      </div>
+
+      <div class="field">
+        <label for="targetModel">Untuk model AI</label>
+        <select id="targetModel">
+          <option value="Universal">Universal</option>
+          <option value="ChatGPT">ChatGPT</option>
+          <option value="Claude">Claude</option>
+          <option value="Gemini">Gemini</option>
+          <option value="Midjourney">Midjourney</option>
+          <option value="lainnya">Lainnya…</option>
+        </select>
+        <input type="text" id="targetModelCustom" class="custom-field hidden" placeholder="Tulis nama model kamu" />
+      </div>
+    </div>
+
+    <div id="chatLog" class="chat-log" aria-live="polite"></div>
+
+    <div class="composer">
+      <textarea id="userInput" rows="3" placeholder="Contoh: saya butuh prompt untuk AI yang bisa review kode Python saya…"></textarea>
+
+      <div id="imagePreviewWrap" class="image-preview hidden">
+        <img id="imagePreviewImg" alt="Gambar yang dilampirkan" />
+        <button id="removeImageBtn" type="button" class="btn-ghost btn-small">Hapus</button>
+      </div>
+
+      <div class="composer-actions">
+        <label class="icon-btn" title="Lampirkan gambar">
+          <span aria-hidden="true">📎</span>
+          <span class="sr-only">Lampirkan gambar</span>
+          <input type="file" id="imageUpload" accept="image/*" class="hidden-input" />
+        </label>
+        <button id="generateBtn" type="button">Generate</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="history" aria-label="Riwayat prompt">
+    <div class="history-header">
+      <h2>Riwayat</h2>
+      <button id="clearHistoryBtn" class="btn-ghost btn-small" type="button">Hapus semua</button>
+    </div>
+    <p id="historyEmpty" class="hint">Belum ada riwayat. Prompt yang kamu buat akan muncul di sini.</p>
+    <ul id="historyList" class="history-list"></ul>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">promptInAja.ai — dibuat untuk belajar, dipakai sendiri, gratis selamanya.</div>
+</footer>
+
+<script>
+
+/* ==== js/storage.js ==== */
+/**
+ * storage.js
+ * -----------
+ * Lapisan penyimpanan riwayat & API key.
+ *
+ * Sengaja dipisah jadi satu file sendiri: sekarang isinya localStorage,
+ * tapi kalau nanti mau upgrade ke Firebase, cukup ganti ISI fungsi di
+ * bawah ini saja. File lain (ui.js, app.js) tidak perlu diubah karena
+ * mereka cuma tahu "panggil Storage.saveHistoryItem(...)", tidak peduli
+ * datanya disimpan di mana.
+ */
+
+const Storage = {
+  API_KEY_STORAGE_KEY: "pia_api_key",
+  HISTORY_STORAGE_KEY: "pia_history",
+  MAX_HISTORY_ITEMS: 50,
+
+  getApiKey() {
+    return localStorage.getItem(this.API_KEY_STORAGE_KEY) || "";
+  },
+
+  setApiKey(key) {
+    localStorage.setItem(this.API_KEY_STORAGE_KEY, key.trim());
+  },
+
+  getHistory() {
+    try {
+      const raw = localStorage.getItem(this.HISTORY_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch (err) {
+      console.error("Gagal membaca riwayat:", err);
+      return [];
+    }
+  },
+
+  saveHistoryItem(item) {
+    const history = this.getHistory();
+    history.unshift({ id: Date.now(), ...item });
+    const trimmed = history.slice(0, this.MAX_HISTORY_ITEMS);
+    localStorage.setItem(this.HISTORY_STORAGE_KEY, JSON.stringify(trimmed));
+    return trimmed;
+  },
+
+  clearHistory() {
+    localStorage.removeItem(this.HISTORY_STORAGE_KEY);
+  },
+};
+
+
+/* ==== js/api.js ==== */
+/**
+ * api.js
+ * -------
+ * Semua komunikasi ke Gemini API ada di sini. Ini dipanggil LANGSUNG dari
+ * browser (tanpa backend) memakai API key milik user sendiri (pola BYOK —
+ * Bring Your Own Key). Google memang mendukung ini untuk endpoint
+ * generateContent.
+ *
+ * Catatan: model "gemini-flash-latest" adalah alias yang otomatis
+ * mengikuti versi Flash terbaru dari Google — cocok untuk project
+ * belajar/prototipe seperti ini karena kita tidak perlu update kode
+ * manual tiap Google rilis versi baru.
+ */
+
+const GeminiAPI = {
+  MODEL: "gemini-flash-latest",
+
+  endpoint() {
+    return `https://generativelanguage.googleapis.com/v1beta/models/${this.MODEL}:generateContent`;
+  },
+
+  MAX_RETRIES: 3,
+  RETRY_DELAY_MS: 2000, // jeda dasar, bertambah tiap percobaan (2s, 4s, 6s)
+
+  /**
+   * Terjemahkan error dari Google jadi pesan yang gampang dipahami
+   * orang awam (bukan JSON mentah seperti yang dikirim server).
+   */
+  friendlyErrorMessage(status, rawBody) {
+    if (status === 400 || status === 403) {
+      return "API key sepertinya tidak valid. Cek lagi di menu Pengaturan.";
+    }
+    if (status === 429) {
+      return "Kuota gratis Gemini kamu untuk hari ini sudah penuh. Coba lagi beberapa saat lagi, atau besok.";
+    }
+    if (status === 503) {
+      return "Server Google sedang sibuk (bukan masalah dari aplikasi ini). Sudah dicoba ulang beberapa kali, tapi masih penuh — coba klik Generate lagi sebentar lagi.";
+    }
+    return `Ada gangguan dari server AI (kode ${status}). Coba lagi sebentar lagi.`;
+  },
+
+  sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  },
+
+  /**
+   * @param {Object} opts
+   * @param {string} opts.apiKey - API key milik user
+   * @param {string} opts.systemInstruction - instruksi sistem (meta-prompt)
+   * @param {Array}  opts.contents - riwayat percakapan format Gemini
+   * @param {Function} [opts.onRetry] - dipanggil tiap kali mau retry, dikasih tahu percobaan ke berapa
+   * @returns {Promise<string>} teks mentah balasan model
+   */
+  async generate({ apiKey, systemInstruction, contents, onRetry }) {
+    if (!apiKey) {
+      throw new Error("API key belum diisi. Buka menu Pengaturan dulu.");
+    }
+
+    let lastStatus = 0;
+    let lastBody = "";
+
+    for (let attempt = 1; attempt <= this.MAX_RETRIES; attempt++) {
+      const response = await fetch(this.endpoint(), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": apiKey,
+        },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: systemInstruction }] },
+          contents,
+          generationConfig: {
+            responseMimeType: "application/json",
+          },
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const parts = data?.candidates?.[0]?.content?.parts || [];
+        return parts.map((p) => p.text || "").join("");
+      }
+
+      lastStatus = response.status;
+      lastBody = await response.text();
+
+      // Hanya 503 (server sibuk) yang layak dicoba ulang otomatis.
+      // Error lain (key salah, kuota habis, dll) langsung dilempar,
+      // karena mengulang tidak akan mengubah hasilnya.
+      const isRetryable = lastStatus === 503;
+      const hasAttemptsLeft = attempt < this.MAX_RETRIES;
+
+      if (isRetryable && hasAttemptsLeft) {
+        if (onRetry) onRetry(attempt, this.MAX_RETRIES);
+        await this.sleep(this.RETRY_DELAY_MS * attempt);
+        continue;
+      }
+
+      throw new Error(this.friendlyErrorMessage(lastStatus, lastBody));
+    }
+  },
+};
+
+
+/* ==== js/promptBuilder.js ==== */
+/**
+ * promptBuilder.js
+ * -----------------
+ * Ini "otak" aplikasi: instruksi sistem (meta-prompt) yang menentukan
+ * bagaimana AI menyusun prompt untuk user, termasuk kapan dia harus
+ * tanya dulu sebelum kasih jawaban final.
+ *
+ * AI selalu diminta balas dalam format JSON supaya app.js bisa
+ * membedakan "AI masih tanya" vs "AI sudah kasih hasil final" secara
+ * pasti, tanpa perlu menebak-nebak dari teks bebas.
+ */
+
+const PromptBuilder = {
+  systemInstruction(outputType, targetModel) {
+    return `Kamu adalah asisten ahli prompt engineering di aplikasi bernama promptInAja.ai.
+Tugasmu: membantu user menyusun SATU prompt yang optimal untuk dipakai di AI lain.
+
+Konteks permintaan user saat ini:
+- Jenis output yang diinginkan: ${outputType}
+- Prompt ini nantinya akan dipakai di model: ${targetModel}
+
+ATURAN WAJIB:
+1. Kalau permintaan user masih terlalu umum atau ambigu — terutama untuk jenis output "Coding" (bahasa pemrograman, format input/output, atau batasan belum jelas), atau kalau detail penting lain belum disebutkan — JANGAN langsung buat prompt final. Ajukan pertanyaan klarifikasi, maksimal 2-3 pertanyaan sekaligus, singkat dan spesifik.
+2. Begitu informasi sudah cukup, susun SATU prompt final yang jelas, spesifik, terstruktur, dan disesuaikan gayanya dengan model target di atas.
+3. Kalau user melampirkan gambar, gunakan itu sebagai konteks tambahan untuk memahami kebutuhan mereka.
+4. Jangan basa-basi atau menyapa. Langsung ke pertanyaan atau hasil.
+
+FORMAT JAWABAN — WAJIB berupa JSON valid saja, tanpa teks lain di luar JSON:
+
+Kalau masih perlu tanya:
+{"type": "question", "message": "pertanyaan kamu di sini"}
+
+Kalau sudah siap kasih hasil final:
+{"type": "final", "prompt": "isi prompt final di sini", "note": "catatan singkat kenapa disusun begitu, boleh dikosongkan jika tidak perlu"}`;
+  },
+
+  /**
+   * Bangun satu entri "contents" bergaya Gemini dari pesan user,
+   * dengan gambar opsional (base64, tanpa prefix data-url).
+   */
+  buildUserContent(text, image) {
+    const parts = [{ text }];
+    if (image) {
+      parts.push({
+        inlineData: {
+          mimeType: image.mimeType,
+          data: image.base64,
+        },
+      });
+    }
+    return { role: "user", parts };
+  },
+
+  buildModelContent(rawText) {
+    return { role: "model", parts: [{ text: rawText }] };
+  },
+
+  /**
+   * Parse balasan model. Kalau ternyata bukan JSON valid (model kadang
+   * meleset), anggap saja itu prompt final mentah — supaya user tetap
+   * dapat sesuatu yang berguna, bukan error kosong.
+   */
+  parseModelResponse(rawText) {
+    try {
+      const parsed = JSON.parse(rawText);
+      if (parsed.type === "question" || parsed.type === "final") return parsed;
+      throw new Error("shape tidak sesuai");
+    } catch (err) {
+      return { type: "final", prompt: rawText.trim(), note: "" };
+    }
+  },
+};
+
+
+/* ==== js/ui.js ==== */
+/**
+ * ui.js
+ * ------
+ * Semua fungsi yang menyentuh DOM (menampilkan pesan, riwayat, dll)
+ * dikumpulkan di sini supaya app.js fokus ke alur logika, bukan detail
+ * markup.
+ */
+
+const UI = {
+  el(id) {
+    return document.getElementById(id);
+  },
+
+  appendUserBubble(text) {
+    const div = document.createElement("div");
+    div.className = "bubble bubble-user";
+    div.innerHTML = `<span class="bubble-label">Kamu</span>${this.escape(text)}`;
+    this.el("chatLog").appendChild(div);
+    this.scrollChatToBottom();
+  },
+
+  appendQuestionBubble(message) {
+    const div = document.createElement("div");
+    div.className = "bubble bubble-question";
+    div.innerHTML = `<span class="bubble-label">promptInAja.ai bertanya</span>${this.escape(message)}`;
+    this.el("chatLog").appendChild(div);
+    this.scrollChatToBottom();
+  },
+
+  appendResultCard(prompt, note) {
+    const div = document.createElement("div");
+    div.className = "bubble result-card";
+    div.innerHTML = `
+      <span class="bubble-label">Prompt final</span>
+      <pre>${this.escape(prompt)}</pre>
+      ${note ? `<p class="result-note">${this.escape(note)}</p>` : ""}
+      <div class="result-actions">
+        <button class="btn-ghost btn-small copy-btn" type="button">Copy</button>
+      </div>
+    `;
+    div.querySelector(".copy-btn").addEventListener("click", () => this.copyToClipboard(prompt));
+    this.el("chatLog").appendChild(div);
+    this.scrollChatToBottom();
+  },
+
+  appendErrorBubble(message) {
+    const div = document.createElement("div");
+    div.className = "bubble bubble-question";
+    div.style.borderLeftColor = "#c25b4a";
+    div.innerHTML = `<span class="bubble-label" style="color:#c25b4a">Terjadi masalah</span>${this.escape(message)}`;
+    this.el("chatLog").appendChild(div);
+    this.scrollChatToBottom();
+  },
+
+  scrollChatToBottom() {
+    const log = this.el("chatLog");
+    log.scrollTop = log.scrollHeight;
+  },
+
+  async copyToClipboard(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (err) {
+      console.error("Gagal menyalin:", err);
+    }
+  },
+
+  escape(str) {
+    const div = document.createElement("div");
+    div.textContent = str;
+    return div.innerHTML;
+  },
+
+  setGenerating(isGenerating) {
+    const btn = this.el("generateBtn");
+    btn.disabled = isGenerating;
+    if (isGenerating) btn.textContent = "Menyusun…";
+    else btn.textContent = "Generate";
+  },
+
+  setRetrying(attempt, maxAttempts) {
+    const btn = this.el("generateBtn");
+    btn.textContent = `Server sibuk, mencoba lagi (${attempt}/${maxAttempts - 1})…`;
+  },
+
+  showKeyStatus(message) {
+    const status = this.el("keyStatus");
+    status.textContent = message;
+    setTimeout(() => (status.textContent = ""), 2500);
+  },
+
+  renderHistory(items) {
+    const list = this.el("historyList");
+    const empty = this.el("historyEmpty");
+    list.innerHTML = "";
+    empty.classList.toggle("hidden", items.length > 0);
+
+    items.forEach((item) => {
+      const li = document.createElement("li");
+      li.className = "history-item";
+      const date = new Date(item.id).toLocaleString("id-ID", {
+        day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
+      });
+      li.innerHTML = `
+        <div class="history-item-meta">${this.escape(item.outputType)} · ${this.escape(item.targetModel)} · ${date}</div>
+        <div class="history-item-preview">${this.escape(item.prompt)}</div>
+      `;
+      li.addEventListener("click", () => {
+        this.el("chatLog").innerHTML = "";
+        this.appendResultCard(item.prompt, item.note);
+      });
+      list.appendChild(li);
+    });
+  },
+};
+
+
+/* ==== js/app.js ==== */
+/**
+ * app.js
+ * -------
+ * Entry point. Menghubungkan storage.js, api.js, promptBuilder.js, dan
+ * ui.js, lalu menangani semua event dari halaman.
+ */
+
+// Percakapan berjalan dalam format Gemini (dipakai untuk multi-turn saat
+// AI perlu tanya dulu). Direset tiap kali user mulai topik baru.
+let conversation = [];
+let pendingImage = null; // { base64, mimeType } atau null
+
+function getSelectedValue(selectId, customId) {
+  const select = UI.el(selectId);
+  if (select.value === "lainnya") {
+    return UI.el(customId).value.trim() || "Lainnya";
+  }
+  return select.value;
+}
+
+function setupCustomFieldToggle(selectId, customId) {
+  const select = UI.el(selectId);
+  const custom = UI.el(customId);
+  select.addEventListener("change", () => {
+    custom.classList.toggle("hidden", select.value !== "lainnya");
+    if (select.value === "lainnya") custom.focus();
+  });
+}
+
+function setupSettingsPanel() {
+  const toggle = UI.el("settingsToggle");
+  const panel = UI.el("settingsPanel");
+  const input = UI.el("apiKeyInput");
+
+  input.value = Storage.getApiKey();
+  toggle.addEventListener("click", () => panel.classList.toggle("hidden"));
+
+  UI.el("saveKeyBtn").addEventListener("click", () => {
+    Storage.setApiKey(input.value);
+    UI.showKeyStatus("Tersimpan di browser kamu.");
+  });
+
+  // Kalau user belum pernah isi key, buka panel dari awal
+  if (!Storage.getApiKey()) panel.classList.remove("hidden");
+}
+
+function setupImageUpload() {
+  UI.el("imageUpload").addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = reader.result.split(",")[1];
+      pendingImage = { base64, mimeType: file.type };
+      UI.el("imagePreviewImg").src = reader.result;
+      UI.el("imagePreviewWrap").classList.remove("hidden");
+    };
+    reader.readAsDataURL(file);
+  });
+
+  UI.el("removeImageBtn").addEventListener("click", () => {
+    pendingImage = null;
+    UI.el("imageUpload").value = "";
+    UI.el("imagePreviewWrap").classList.add("hidden");
+  });
+}
+
+async function handleGenerate() {
+  const textarea = UI.el("userInput");
+  const text = textarea.value.trim();
+  if (!text) return;
+
+  const apiKey = Storage.getApiKey();
+  if (!apiKey) {
+    UI.el("settingsPanel").classList.remove("hidden");
+    UI.appendErrorBubble("Isi dulu Gemini API key kamu di menu Pengaturan.");
+    return;
+  }
+
+  const outputType = getSelectedValue("outputType", "outputTypeCustom");
+  const targetModel = getSelectedValue("targetModel", "targetModelCustom");
+  const imageToSend = pendingImage; // simpan dulu sebelum dikosongkan, buat jaga-jaga kalau gagal
+
+  UI.appendUserBubble(text);
+  conversation.push(PromptBuilder.buildUserContent(text, imageToSend));
+
+  textarea.value = "";
+  pendingImage = null;
+  UI.el("imageUpload").value = "";
+  UI.el("imagePreviewWrap").classList.add("hidden");
+
+  UI.setGenerating(true);
+  try {
+    const raw = await GeminiAPI.generate({
+      apiKey,
+      systemInstruction: PromptBuilder.systemInstruction(outputType, targetModel),
+      contents: conversation,
+      onRetry: (attempt, maxAttempts) => UI.setRetrying(attempt, maxAttempts),
+    });
+
+    conversation.push(PromptBuilder.buildModelContent(raw));
+    const parsed = PromptBuilder.parseModelResponse(raw);
+
+    if (parsed.type === "question") {
+      UI.appendQuestionBubble(parsed.message);
+    } else {
+      UI.appendResultCard(parsed.prompt, parsed.note);
+      const updated = Storage.saveHistoryItem({
+        outputType,
+        targetModel,
+        prompt: parsed.prompt,
+        note: parsed.note || "",
+      });
+      UI.renderHistory(updated);
+      conversation = []; // topik selesai, siap untuk permintaan baru
+    }
+  } catch (err) {
+    console.error(err);
+    // Gagal total (semua percobaan retry habis) — jangan buat user
+    // ngetik ulang dari nol. Kembalikan teks & gambar ke kotak dialog,
+    // dan buang entri percakapan yang gagal supaya tidak dobel saat
+    // dicoba lagi.
+    conversation.pop();
+    textarea.value = text;
+    if (imageToSend) {
+      pendingImage = imageToSend;
+      UI.el("imagePreviewImg").src = `data:${imageToSend.mimeType};base64,${imageToSend.base64}`;
+      UI.el("imagePreviewWrap").classList.remove("hidden");
+    }
+    UI.appendErrorBubble(err.message || "Ada yang salah, coba lagi sebentar lagi.");
+  } finally {
+    UI.setGenerating(false);
+  }
+}
+
+function setupHistory() {
+  UI.renderHistory(Storage.getHistory());
+  UI.el("clearHistoryBtn").addEventListener("click", () => {
+    Storage.clearHistory();
+    UI.renderHistory([]);
+  });
+}
+
+function init() {
+  setupSettingsPanel();
+  setupCustomFieldToggle("outputType", "outputTypeCustom");
+  setupCustomFieldToggle("targetModel", "targetModelCustom");
+  setupImageUpload();
+  setupHistory();
+
+  UI.el("generateBtn").addEventListener("click", handleGenerate);
+  UI.el("userInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleGenerate();
+    }
+  });
+}
+
+document.addEventListener("DOMContentLoaded", init);
+
+
+</script>
+</body>
+</html>
