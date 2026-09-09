@@ -144,7 +144,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   line-height: 1.15;
   font-weight: 600;
   margin: 0 0 14px;
-  max-width: 15ch;
+  max-width: 22ch;
 }
 .hero h1 em { font-style: normal; color: var(--accent); }
 .hero p { color: var(--text-muted); max-width: 46ch; margin: 0; }
@@ -194,9 +194,25 @@ select, .custom-field {
 }
 .bubble-user {
   background: var(--surface-2);
-  align-self: flex-end;
   border: 0.5px solid var(--border);
+  max-width: 100%;
 }
+.bubble-text { display: block; margin-bottom: 6px; }
+.edit-turn-btn { opacity: 0.7; }
+.edit-turn-btn:hover { opacity: 1; }
+.edit-textarea {
+  width: 100%;
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14.5px;
+  padding: 8px;
+  resize: vertical;
+  margin-bottom: 8px;
+}
+.edit-actions { display: flex; gap: 8px; justify-content: flex-end; }
 .bubble-question {
   background: var(--surface-2);
   border-left: 2px solid var(--accent-2);
@@ -369,7 +385,7 @@ textarea {
 <main class="wrap">
 
   <section class="hero">
-    <h1>Susun prompt yang tepat,<br><em>in aja</em>.</h1>
+    <h1>Susun prompt yang tepat,<br><em>PromptInAja.ai</em>.</h1>
     <p>Jelaskan apa yang kamu butuhkan. Kalau instruksinya masih terlalu umum, promptInAja.ai akan tanya dulu sebelum kasih hasil final.</p>
   </section>
 
@@ -686,6 +702,28 @@ Kalau sudah siap kasih hasil final:
       return { type: "final", prompt: rawText.trim(), note: "" };
     }
   },
+
+  /**
+   * Ubah array `conversation` (format mentah Gemini) jadi daftar pesan
+   * yang gampang ditampilkan ulang: instruksi user + pertanyaan AI
+   * (kalau ada). Hasil akhirnya TIDAK dimasukkan di sini karena sudah
+   * disimpan terpisah sebagai item.prompt di riwayat.
+   */
+  buildTranscript(conversation) {
+    const transcript = [];
+    conversation.forEach((turn) => {
+      const text = (turn.parts && turn.parts[0] && turn.parts[0].text) || "";
+      if (turn.role === "user") {
+        transcript.push({ sender: "user", text });
+      } else if (turn.role === "model") {
+        const parsed = this.parseModelResponse(text);
+        if (parsed.type === "question") {
+          transcript.push({ sender: "question", text: parsed.message });
+        }
+      }
+    });
+    return transcript;
+  },
 };
 
 
@@ -703,12 +741,58 @@ const UI = {
     return document.getElementById(id);
   },
 
-  appendUserBubble(text) {
+  /**
+   * @param {string} text - isi pesan
+   * @param {number} turnIndex - posisi pesan ini di array `conversation`, dipakai app.js untuk tahu titik potong saat diedit
+   * @param {Function|null} onSave - dipanggil dengan teks baru saat user klik "Kirim ulang". Kirim null untuk mode baca-saja (dipakai saat menampilkan riwayat lama, karena tidak nyambung ke percakapan yang sedang aktif)
+   */
+  appendUserBubble(text, turnIndex, onSave) {
     const div = document.createElement("div");
     div.className = "bubble bubble-user";
-    div.innerHTML = `<span class="bubble-label">Kamu</span>${this.escape(text)}`;
+    div.dataset.turnIndex = turnIndex;
+
+    const renderView = (displayText) => {
+      div.style.width = ""; // lepas lebar terkunci, biar bubble kembali menyesuaikan panjang teks
+      div.innerHTML = `
+        <span class="bubble-label">Kamu</span>
+        <span class="bubble-text">${this.escape(displayText)}</span>
+        ${onSave ? '<button class="btn-ghost btn-small edit-turn-btn" type="button">Edit</button>' : ""}
+      `;
+      if (onSave) {
+        div.querySelector(".edit-turn-btn").addEventListener("click", () => {
+          if (this.el("generateBtn").disabled) return; // jangan edit saat masih proses generate
+          // Kunci lebar bubble ke ukuran saat ini SEBELUM isinya diganti
+          // jadi textarea — supaya tidak mendadak menyempit saat berubah
+          // ke mode edit (textarea kosong tidak punya lebar alami).
+          div.style.width = `${div.getBoundingClientRect().width}px`;
+          renderEdit(displayText);
+        });
+      }
+    };
+
+    const renderEdit = (currentText) => {
+      div.innerHTML = `
+        <span class="bubble-label">Edit pesan kamu</span>
+        <textarea class="edit-textarea" rows="3">${this.escape(currentText)}</textarea>
+        <div class="edit-actions">
+          <button class="btn-ghost btn-small cancel-edit-btn" type="button">Batal</button>
+          <button class="btn-small save-edit-btn" type="button">Kirim ulang</button>
+        </div>
+      `;
+      const textarea = div.querySelector(".edit-textarea");
+      textarea.focus();
+      div.querySelector(".cancel-edit-btn").addEventListener("click", () => renderView(currentText));
+      div.querySelector(".save-edit-btn").addEventListener("click", () => {
+        const newText = textarea.value.trim();
+        if (!newText) return;
+        onSave(newText);
+      });
+    };
+
+    renderView(text);
     this.el("chatLog").appendChild(div);
     this.scrollChatToBottom();
+    return div;
   },
 
   appendQuestionBubble(message) {
@@ -798,7 +882,15 @@ const UI = {
         <div class="history-item-preview">${this.escape(item.prompt)}</div>
       `;
       li.addEventListener("click", () => {
-        this.el("chatLog").innerHTML = "";
+        const chatLog = this.el("chatLog");
+        chatLog.innerHTML = "";
+        (item.transcript || []).forEach((msg) => {
+          if (msg.sender === "user") {
+            this.appendUserBubble(msg.text, -1, null); // -1 & null = mode baca-saja, tidak bisa diedit
+          } else if (msg.sender === "question") {
+            this.appendQuestionBubble(msg.text);
+          }
+        });
         this.appendResultCard(item.prompt, item.note);
       });
       list.appendChild(li);
@@ -819,6 +911,11 @@ const UI = {
 // AI perlu tanya dulu). Direset tiap kali user mulai topik baru.
 let conversation = [];
 let pendingImage = null; // { base64, mimeType } atau null
+
+// Melacak gambar yang dilampirkan tiap pesan user, per posisi (turnIndex)
+// di array `conversation`. Dipakai supaya saat pesan diedit & dikirim
+// ulang, gambar aslinya (kalau ada) ikut terbawa lagi.
+let turnImages = {};
 
 function getSelectedValue(selectId, customId) {
   const select = UI.el(selectId);
@@ -893,9 +990,10 @@ function setupImageUpload() {
   });
 }
 
-async function handleGenerate() {
+async function handleGenerate(overrideText, overrideImage) {
   const textarea = UI.el("userInput");
-  const text = textarea.value.trim();
+  const isEditResend = overrideText !== undefined;
+  const text = isEditResend ? overrideText : textarea.value.trim();
   if (!text) return;
 
   const apiKey = Storage.getApiKey();
@@ -907,15 +1005,20 @@ async function handleGenerate() {
 
   const outputType = getSelectedValue("outputType", "outputTypeCustom");
   const targetModel = getSelectedValue("targetModel", "targetModelCustom");
-  const imageToSend = pendingImage; // simpan dulu sebelum dikosongkan, buat jaga-jaga kalau gagal
+  const imageToSend = isEditResend ? overrideImage : pendingImage;
 
-  UI.appendUserBubble(text);
+  const turnIndex = conversation.length;
+  turnImages[turnIndex] = imageToSend;
+
+  UI.appendUserBubble(text, turnIndex, (newText) => editTurn(turnIndex, newText));
   conversation.push(PromptBuilder.buildUserContent(text, imageToSend));
 
-  textarea.value = "";
-  pendingImage = null;
-  UI.el("imageUpload").value = "";
-  UI.el("imagePreviewWrap").classList.add("hidden");
+  if (!isEditResend) {
+    textarea.value = "";
+    pendingImage = null;
+    UI.el("imageUpload").value = "";
+    UI.el("imagePreviewWrap").classList.add("hidden");
+  }
 
   UI.setGenerating(true);
   try {
@@ -939,9 +1042,11 @@ async function handleGenerate() {
         targetModel,
         prompt: parsed.prompt,
         note: parsed.note || "",
+        transcript: PromptBuilder.buildTranscript(conversation),
       });
       UI.renderHistory(updated);
       conversation = []; // topik selesai, siap untuk permintaan baru
+      turnImages = {};
     }
   } catch (err) {
     console.error(err);
@@ -950,6 +1055,7 @@ async function handleGenerate() {
     // dan buang entri percakapan yang gagal supaya tidak dobel saat
     // dicoba lagi.
     conversation.pop();
+    delete turnImages[turnIndex];
     textarea.value = text;
     if (imageToSend) {
       pendingImage = imageToSend;
@@ -960,6 +1066,33 @@ async function handleGenerate() {
   } finally {
     UI.setGenerating(false);
   }
+}
+
+/**
+ * Dipanggil saat user edit pesan lama & klik "Kirim ulang".
+ * Memotong percakapan sampai sebelum pesan itu (jadi seolah-olah
+ * semua yang terjadi setelahnya belum pernah terjadi), menghapus
+ * bubble-bubble terkait dari layar, lalu generate ulang dengan teks
+ * baru — persis seperti perilaku edit pesan di ChatGPT/Claude.
+ */
+function editTurn(turnIndex, newText) {
+  const imageToReuse = turnImages[turnIndex] || null;
+
+  conversation = conversation.slice(0, turnIndex);
+  Object.keys(turnImages).forEach((key) => {
+    if (Number(key) >= turnIndex) delete turnImages[key];
+  });
+
+  const chatLog = UI.el("chatLog");
+  const bubbleToReplace = chatLog.querySelector(`[data-turn-index="${turnIndex}"]`);
+  let node = bubbleToReplace;
+  while (node) {
+    const next = node.nextSibling;
+    node.remove();
+    node = next;
+  }
+
+  handleGenerate(newText, imageToReuse);
 }
 
 function setupHistory() {
