@@ -346,12 +346,22 @@ textarea {
     <label for="apiKeyInput">Gemini API key kamu</label>
     <div class="key-row">
       <input type="password" id="apiKeyInput" placeholder="Tempel API key di sini" autocomplete="off" />
-      <button id="saveKeyBtn" type="button">Simpan</button>
     </div>
     <p class="hint">
       Kunci ini tersimpan di browser kamu sendiri dan dikirim langsung ke Google saat generate — tidak lewat server kami.
       Belum punya? <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Ambil gratis di Google AI Studio →</a>
     </p>
+
+    <label for="modelSelect" style="margin-top:16px;">Model Gemini yang dipakai</label>
+    <select id="modelSelect">
+      <option value="gemini-3.5-flash-lite">Flash-Lite — kuota besar, cocok untuk sering dicoba (disarankan)</option>
+      <option value="gemini-3.5-flash">Flash — kualitas lebih tinggi, kuota lebih kecil</option>
+      <option value="lainnya">Lainnya (tulis nama model manual)…</option>
+    </select>
+    <input type="text" id="modelCustom" class="custom-field hidden" placeholder="Contoh: gemini-3.5-pro" />
+    <p class="hint">Flash-Lite kuotanya jauh lebih longgar — pas untuk belajar & sering-sering coba. Pindah ke Flash kalau butuh hasil lebih matang dan jarang generate.</p>
+
+    <button id="saveKeyBtn" type="button" style="margin-top:12px;">Simpan Pengaturan</button>
     <p id="keyStatus" class="key-status"></p>
   </div>
 </section>
@@ -446,7 +456,9 @@ textarea {
 
 const Storage = {
   API_KEY_STORAGE_KEY: "pia_api_key",
+  MODEL_STORAGE_KEY: "pia_model",
   HISTORY_STORAGE_KEY: "pia_history",
+  DEFAULT_MODEL: "gemini-3.5-flash-lite",
   MAX_HISTORY_ITEMS: 50,
 
   getApiKey() {
@@ -455,6 +467,14 @@ const Storage = {
 
   setApiKey(key) {
     localStorage.setItem(this.API_KEY_STORAGE_KEY, key.trim());
+  },
+
+  getModel() {
+    return localStorage.getItem(this.MODEL_STORAGE_KEY) || this.DEFAULT_MODEL;
+  },
+
+  setModel(model) {
+    localStorage.setItem(this.MODEL_STORAGE_KEY, model.trim() || this.DEFAULT_MODEL);
   },
 
   getHistory() {
@@ -497,10 +517,13 @@ const Storage = {
  */
 
 const GeminiAPI = {
-  MODEL: "gemini-flash-latest",
+  // Model default kalau tidak ada pilihan lain — tapi sekarang model
+  // sesungguhnya dipakai datang dari opts.model (pilihan user di menu
+  // Pengaturan), bukan konstanta ini. Lihat storage.js: Storage.getModel().
+  MODEL: "gemini-3.5-flash-lite",
 
-  endpoint() {
-    return `https://generativelanguage.googleapis.com/v1beta/models/${this.MODEL}:generateContent`;
+  endpoint(model) {
+    return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
   },
 
   MAX_RETRIES: 3,
@@ -513,6 +536,9 @@ const GeminiAPI = {
   friendlyErrorMessage(status, rawBody) {
     if (status === 400 || status === 403) {
       return "API key sepertinya tidak valid. Cek lagi di menu Pengaturan.";
+    }
+    if (status === 404) {
+      return "Nama model ini tidak ditemukan — kemungkinan salah ketik, atau modelnya sudah dipensiunkan Google. Cek/ganti nama model di menu Pengaturan.";
     }
     if (status === 429) {
       return "Kuota gratis Gemini kamu untuk hari ini sudah penuh. Coba lagi beberapa saat lagi, atau besok.";
@@ -530,21 +556,23 @@ const GeminiAPI = {
   /**
    * @param {Object} opts
    * @param {string} opts.apiKey - API key milik user
+   * @param {string} [opts.model] - nama model Gemini yang dipakai, default ke this.MODEL
    * @param {string} opts.systemInstruction - instruksi sistem (meta-prompt)
    * @param {Array}  opts.contents - riwayat percakapan format Gemini
    * @param {Function} [opts.onRetry] - dipanggil tiap kali mau retry, dikasih tahu percobaan ke berapa
    * @returns {Promise<string>} teks mentah balasan model
    */
-  async generate({ apiKey, systemInstruction, contents, onRetry }) {
+  async generate({ apiKey, model, systemInstruction, contents, onRetry }) {
     if (!apiKey) {
       throw new Error("API key belum diisi. Buka menu Pengaturan dulu.");
     }
+    const useModel = (model || this.MODEL).trim();
 
     let lastStatus = 0;
     let lastBody = "";
 
     for (let attempt = 1; attempt <= this.MAX_RETRIES; attempt++) {
-      const response = await fetch(this.endpoint(), {
+      const response = await fetch(this.endpoint(useModel), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -812,13 +840,30 @@ function setupCustomFieldToggle(selectId, customId) {
 function setupSettingsPanel() {
   const toggle = UI.el("settingsToggle");
   const panel = UI.el("settingsPanel");
-  const input = UI.el("apiKeyInput");
+  const keyInput = UI.el("apiKeyInput");
+  const modelSelect = UI.el("modelSelect");
+  const modelCustom = UI.el("modelCustom");
 
-  input.value = Storage.getApiKey();
+  keyInput.value = Storage.getApiKey();
+
+  // Muat model tersimpan ke dropdown — kalau modelnya bukan salah satu
+  // opsi bawaan, otomatis pilih "Lainnya" dan isi kolom custom-nya.
+  const savedModel = Storage.getModel();
+  const isBuiltIn = Array.from(modelSelect.options).some((opt) => opt.value === savedModel);
+  if (isBuiltIn) {
+    modelSelect.value = savedModel;
+  } else {
+    modelSelect.value = "lainnya";
+    modelCustom.value = savedModel;
+    modelCustom.classList.remove("hidden");
+  }
+
   toggle.addEventListener("click", () => panel.classList.toggle("hidden"));
 
   UI.el("saveKeyBtn").addEventListener("click", () => {
-    Storage.setApiKey(input.value);
+    Storage.setApiKey(keyInput.value);
+    const chosenModel = getSelectedValue("modelSelect", "modelCustom");
+    Storage.setModel(chosenModel);
     UI.showKeyStatus("Tersimpan di browser kamu.");
   });
 
@@ -876,6 +921,7 @@ async function handleGenerate() {
   try {
     const raw = await GeminiAPI.generate({
       apiKey,
+      model: Storage.getModel(),
       systemInstruction: PromptBuilder.systemInstruction(outputType, targetModel),
       contents: conversation,
       onRetry: (attempt, maxAttempts) => UI.setRetrying(attempt, maxAttempts),
@@ -928,6 +974,7 @@ function init() {
   setupSettingsPanel();
   setupCustomFieldToggle("outputType", "outputTypeCustom");
   setupCustomFieldToggle("targetModel", "targetModelCustom");
+  setupCustomFieldToggle("modelSelect", "modelCustom");
   setupImageUpload();
   setupHistory();
 
