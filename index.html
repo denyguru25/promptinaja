@@ -550,8 +550,28 @@ const GeminiAPI = {
    * orang awam (bukan JSON mentah seperti yang dikirim server).
    */
   friendlyErrorMessage(status, rawBody) {
-    if (status === 400 || status === 403) {
-      return "API key sepertinya tidak valid. Cek lagi di menu Pengaturan.";
+    let googleMessage = "";
+    try {
+      const parsed = JSON.parse(rawBody);
+      googleMessage = (parsed && parsed.error && parsed.error.message) || "";
+    } catch (err) {
+      // rawBody bukan JSON valid, biarkan googleMessage kosong
+    }
+
+    if (status === 403) {
+      return "API key sepertinya tidak valid atau tidak punya izin. Cek lagi di menu Pengaturan.";
+    }
+    if (status === 400) {
+      // 400 sering dikira soal API key, padahal bisa juga soal hal lain
+      // (nama model, format permintaan, dll). Cek pesan asli dari
+      // Google dulu sebelum menyimpulkan itu soal key.
+      const looksLikeKeyIssue = /api key|api_key_invalid/i.test(googleMessage);
+      if (looksLikeKeyIssue) {
+        return "API key sepertinya tidak valid. Cek lagi di menu Pengaturan.";
+      }
+      return googleMessage
+        ? `Google menolak permintaan ini: "${googleMessage}" — ini biasanya BUKAN soal API key, coba cek nama model yang dipakai di menu Pengaturan.`
+        : "Google menolak permintaan ini tapi tidak memberi alasan detail. Coba lagi sebentar lagi.";
     }
     if (status === 404) {
       return "Nama model ini tidak ditemukan — kemungkinan salah ketik, atau modelnya sudah dipensiunkan Google. Cek/ganti nama model di menu Pengaturan.";
@@ -1111,7 +1131,7 @@ function init() {
   setupImageUpload();
   setupHistory();
 
-  UI.el("generateBtn").addEventListener("click", handleGenerate);
+  UI.el("generateBtn").addEventListener("click", () => handleGenerate());
   UI.el("userInput").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
