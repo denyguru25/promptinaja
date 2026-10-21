@@ -279,7 +279,18 @@ textarea {
   cursor: pointer;
   font-size: 16px;
 }
+.attach-group { display: flex; gap: 8px; }
 .icon-btn:hover { border-color: var(--text-muted); }
+.bubble-attachment {
+  display: inline-block;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 8px;
+  margin-bottom: 8px;
+}
 
 .image-preview {
   display: flex;
@@ -291,6 +302,39 @@ textarea {
   border-radius: var(--radius);
 }
 .image-preview img { height: 48px; width: 48px; object-fit: cover; border-radius: 4px; }
+.image-preview-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.thumb {
+  position: relative;
+  width: 64px;
+  height: 64px;
+}
+.thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: var(--radius);
+  border: 0.5px solid var(--border);
+}
+.thumb-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  line-height: 1;
+  font-size: 13px;
+  background: var(--surface);
+  color: var(--text);
+  border: 0.5px solid var(--border);
+  border-radius: 50%;
+}
+.thumb-remove:hover { border-color: var(--text-muted); }
 
 /* ---------- history ---------- */
 .history { padding-bottom: 60px; }
@@ -347,6 +391,10 @@ textarea {
 }
 
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 </head>
 <body>
 
@@ -424,17 +472,28 @@ textarea {
     <div class="composer">
       <textarea id="userInput" rows="3" placeholder="Contoh: saya butuh prompt untuk AI yang bisa review kode Python saya…"></textarea>
 
-      <div id="imagePreviewWrap" class="image-preview hidden">
-        <img id="imagePreviewImg" alt="Gambar yang dilampirkan" />
-        <button id="removeImageBtn" type="button" class="btn-ghost btn-small">Hapus</button>
+      <div id="imagePreviewWrap" class="image-preview-list hidden"></div>
+
+      <div id="documentPreviewWrap" class="image-preview hidden">
+        <span id="documentPreviewName"></span>
+        <button id="removeDocumentBtn" type="button" class="btn-ghost btn-small">Hapus</button>
       </div>
 
+      <p id="documentStatus" class="hint"></p>
+
       <div class="composer-actions">
-        <label class="icon-btn" title="Lampirkan gambar">
-          <span aria-hidden="true">📎</span>
-          <span class="sr-only">Lampirkan gambar</span>
-          <input type="file" id="imageUpload" accept="image/*" class="hidden-input" />
-        </label>
+        <div class="attach-group">
+          <label class="icon-btn" title="Lampirkan gambar (maksimal 3)">
+            <span aria-hidden="true">📎</span>
+            <span class="sr-only">Lampirkan gambar</span>
+            <input type="file" id="imageUpload" accept="image/*" multiple class="hidden-input" />
+          </label>
+          <label class="icon-btn" title="Lampirkan dokumen (PDF, Word, Excel, PowerPoint)">
+            <span aria-hidden="true">📄</span>
+            <span class="sr-only">Lampirkan dokumen</span>
+            <input type="file" id="documentUpload" accept=".pdf,.docx,.xlsx,.xls,.pptx" class="hidden-input" />
+          </label>
+        </div>
         <button id="generateBtn" type="button">Generate</button>
       </div>
     </div>
@@ -650,6 +709,117 @@ const GeminiAPI = {
 };
 
 
+/* ==== js/fileParser.js ==== */
+/**
+ * fileParser.js
+ * --------------
+ * Ekstraksi teks dari dokumen (PDF, Word, Excel, PowerPoint) — semuanya
+ * dilakukan langsung di browser lewat library pihak ketiga (dimuat dari
+ * CDN di index.html), tanpa backend.
+ */
+
+const FileParser = {
+  MAX_CHARS: 20000, // batas karakter, biar tidak kebanyakan token dikirim ke Gemini
+  MAX_FILE_SIZE_MB: 8,
+
+  SUPPORTED_EXTENSIONS: ["pdf", "docx", "xlsx", "xls", "pptx"],
+
+  getExtension(filename) {
+    return filename.split(".").pop().toLowerCase();
+  },
+
+  isSupported(filename) {
+    return this.SUPPORTED_EXTENSIONS.includes(this.getExtension(filename));
+  },
+
+  /**
+   * @param {File} file
+   * @returns {Promise<{ text: string, truncated: boolean }>}
+   */
+  async extractText(file) {
+    if (file.size > this.MAX_FILE_SIZE_MB * 1024 * 1024) {
+      throw new Error(`Ukuran file maksimal ${this.MAX_FILE_SIZE_MB}MB. File kamu terlalu besar.`);
+    }
+
+    const ext = this.getExtension(file.name);
+    let text = "";
+
+    if (ext === "pdf") text = await this.extractPdf(file);
+    else if (ext === "docx") text = await this.extractDocx(file);
+    else if (ext === "xlsx" || ext === "xls") text = await this.extractXlsx(file);
+    else if (ext === "pptx") text = await this.extractPptx(file);
+    else throw new Error(`Format .${ext} belum didukung. Yang didukung: PDF, Word (.docx), Excel (.xlsx), PowerPoint (.pptx).`);
+
+    text = text.trim();
+    if (!text) {
+      throw new Error("Tidak ada teks yang bisa dibaca dari dokumen ini (mungkin hasil scan/gambar tanpa teks asli).");
+    }
+
+    let truncated = false;
+    if (text.length > this.MAX_CHARS) {
+      text = text.slice(0, this.MAX_CHARS);
+      truncated = true;
+    }
+    return { text, truncated };
+  },
+
+  async extractPdf(file) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+    const buffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+
+    let text = "";
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      text += content.items.map((item) => item.str).join(" ") + "\n\n";
+    }
+    return text;
+  },
+
+  async extractDocx(file) {
+    const buffer = await file.arrayBuffer();
+    const result = await mammoth.extractRawText({ arrayBuffer: buffer });
+    return result.value;
+  },
+
+  async extractXlsx(file) {
+    const buffer = await file.arrayBuffer();
+    const workbook = XLSX.read(buffer, { type: "array" });
+    let text = "";
+    workbook.SheetNames.forEach((sheetName) => {
+      const sheet = workbook.Sheets[sheetName];
+      const csv = XLSX.utils.sheet_to_csv(sheet);
+      text += `--- Sheet: ${sheetName} ---\n${csv}\n\n`;
+    });
+    return text;
+  },
+
+  async extractPptx(file) {
+    const buffer = await file.arrayBuffer();
+    const zip = await JSZip.loadAsync(buffer);
+
+    const slideFiles = Object.keys(zip.files)
+      .filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name))
+      .sort((a, b) => {
+        const numA = parseInt(a.match(/\d+/)[0], 10);
+        const numB = parseInt(b.match(/\d+/)[0], 10);
+        return numA - numB;
+      });
+
+    let text = "";
+    for (let i = 0; i < slideFiles.length; i++) {
+      const xml = await zip.files[slideFiles[i]].async("text");
+      const matches = xml.match(/<a:t>([^<]*)<\/a:t>/g) || [];
+      const slideText = matches.map((m) => m.replace(/<a:t>|<\/a:t>/g, "")).join(" ");
+      text += `--- Slide ${i + 1} ---\n${slideText}\n\n`;
+    }
+    return text;
+  },
+};
+
+
 /* ==== js/promptBuilder.js ==== */
 /**
  * promptBuilder.js
@@ -676,7 +846,8 @@ ATURAN WAJIB:
 1. Kalau permintaan user masih terlalu umum atau ambigu — terutama untuk jenis output "Coding" (bahasa pemrograman, format input/output, atau batasan belum jelas), atau kalau detail penting lain belum disebutkan — JANGAN langsung buat prompt final. Ajukan pertanyaan klarifikasi, maksimal 2-3 pertanyaan sekaligus, singkat dan spesifik.
 2. Begitu informasi sudah cukup, susun SATU prompt final yang jelas, spesifik, terstruktur, dan disesuaikan gayanya dengan model target di atas.
 3. Kalau user melampirkan gambar, gunakan itu sebagai konteks tambahan untuk memahami kebutuhan mereka.
-4. Jangan basa-basi atau menyapa. Langsung ke pertanyaan atau hasil.
+4. Kalau pesan user mengandung blok "[Isi dokumen terlampir: ...]", itu adalah isi dokumen yang diupload user. Perhatikan kalimat instruksi user untuk tahu maksudnya: kalau mereka bilang "seperti punya saya", "mirip ini", "sebagai contoh format" → pakai dokumen itu HANYA sebagai referensi bentuk/struktur, JANGAN salin data spesifik dari dalamnya ke prompt final. Tapi kalau mereka bilang "berdasarkan data ini", "ringkasan dari file ini", "termasuk isi dari" → masukkan data/isi spesifik dari dokumen itu ke dalam prompt final. Kalau maksudnya tidak jelas dari kalimat user, tanyakan dulu (ikuti aturan #1).
+5. Jangan basa-basi atau menyapa. Langsung ke pertanyaan atau hasil.
 
 FORMAT JAWABAN — WAJIB berupa JSON valid saja, tanpa teks lain di luar JSON:
 
@@ -691,17 +862,29 @@ Kalau sudah siap kasih hasil final:
    * Bangun satu entri "contents" bergaya Gemini dari pesan user,
    * dengan gambar opsional (base64, tanpa prefix data-url).
    */
-  buildUserContent(text, image) {
+  buildUserContent(text, images) {
     const parts = [{ text }];
-    if (image) {
+    (images || []).forEach((image) => {
       parts.push({
         inlineData: {
           mimeType: image.mimeType,
           data: image.base64,
         },
       });
-    }
+    });
     return { role: "user", parts };
+  },
+
+  /**
+   * Gabungkan instruksi user dengan isi dokumen terlampir (kalau ada),
+   * jadi 1 teks yang dikirim ke API. Teks ini BEDA dari yang ditampilkan
+   * di layar — di layar cukup ditunjukkan lewat label kecil "📄 nama
+   * file", supaya bubble chat tidak penuh sesak isi dokumen mentah.
+   */
+  buildApiText(text, doc) {
+    if (!doc) return text;
+    const truncNote = doc.truncated ? "\n[Catatan: isi dokumen dipotong karena terlalu panjang]" : "";
+    return `${text}\n\n[Isi dokumen terlampir: "${doc.filename}"]\n${doc.text}${truncNote}`;
   },
 
   buildModelContent(rawText) {
@@ -765,8 +948,9 @@ const UI = {
    * @param {string} text - isi pesan
    * @param {number} turnIndex - posisi pesan ini di array `conversation`, dipakai app.js untuk tahu titik potong saat diedit
    * @param {Function|null} onSave - dipanggil dengan teks baru saat user klik "Kirim ulang". Kirim null untuk mode baca-saja (dipakai saat menampilkan riwayat lama, karena tidak nyambung ke percakapan yang sedang aktif)
+   * @param {string} [attachmentLabel] - label kecil lampiran, misal "📄 laporan.pdf"
    */
-  appendUserBubble(text, turnIndex, onSave) {
+  appendUserBubble(text, turnIndex, onSave, attachmentLabel) {
     const div = document.createElement("div");
     div.className = "bubble bubble-user";
     div.dataset.turnIndex = turnIndex;
@@ -775,6 +959,7 @@ const UI = {
       div.style.width = ""; // lepas lebar terkunci, biar bubble kembali menyesuaikan panjang teks
       div.innerHTML = `
         <span class="bubble-label">Kamu</span>
+        ${attachmentLabel ? `<span class="bubble-attachment">${this.escape(attachmentLabel)}</span><br>` : ""}
         <span class="bubble-text">${this.escape(displayText)}</span>
         ${onSave ? '<button class="btn-ghost btn-small edit-turn-btn" type="button">Edit</button>' : ""}
       `;
@@ -885,6 +1070,25 @@ const UI = {
     setTimeout(() => (status.textContent = ""), 2500);
   },
 
+  showDocumentStatus(message) {
+    const status = this.el("documentStatus");
+    status.textContent = message;
+  },
+
+  clearDocumentStatus() {
+    this.el("documentStatus").textContent = "";
+  },
+
+  showDocumentPreview(filename, truncated) {
+    this.el("documentPreviewName").textContent = truncated ? `📄 ${filename} (dipotong, terlalu panjang)` : `📄 ${filename}`;
+    this.el("documentPreviewWrap").classList.remove("hidden");
+    this.clearDocumentStatus();
+  },
+
+  hideDocumentPreview() {
+    this.el("documentPreviewWrap").classList.add("hidden");
+  },
+
   renderHistory(items) {
     const list = this.el("historyList");
     const empty = this.el("historyEmpty");
@@ -930,12 +1134,16 @@ const UI = {
 // Percakapan berjalan dalam format Gemini (dipakai untuk multi-turn saat
 // AI perlu tanya dulu). Direset tiap kali user mulai topik baru.
 let conversation = [];
-let pendingImage = null; // { base64, mimeType } atau null
+const MAX_IMAGES = 3;
+const MAX_IMAGE_MB = 5;
+let pendingImages = []; // array of { base64, mimeType, dataUrl }, maksimal MAX_IMAGES
+let pendingDocument = null; // { filename, text, truncated } atau null
 
-// Melacak gambar yang dilampirkan tiap pesan user, per posisi (turnIndex)
-// di array `conversation`. Dipakai supaya saat pesan diedit & dikirim
-// ulang, gambar aslinya (kalau ada) ikut terbawa lagi.
+// Melacak lampiran (gambar & dokumen) tiap pesan user, per posisi
+// (turnIndex) di array `conversation`. Dipakai supaya saat pesan diedit
+// & dikirim ulang, lampiran aslinya ikut terbawa lagi.
 let turnImages = {};
+let turnDocuments = {};
 
 function getSelectedValue(selectId, customId) {
   const select = UI.el(selectId);
@@ -988,29 +1196,112 @@ function setupSettingsPanel() {
   if (!Storage.getApiKey()) panel.classList.remove("hidden");
 }
 
-function setupImageUpload() {
-  UI.el("imageUpload").addEventListener("change", (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
+function readImageFile(file) {
+  return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
-      const base64 = reader.result.split(",")[1];
-      pendingImage = { base64, mimeType: file.type };
-      UI.el("imagePreviewImg").src = reader.result;
-      UI.el("imagePreviewWrap").classList.remove("hidden");
+      resolve({
+        base64: reader.result.split(",")[1],
+        mimeType: file.type,
+        dataUrl: reader.result,
+      });
     };
+    reader.onerror = () => reject(new Error(`Gagal membaca gambar ${file.name}.`));
     reader.readAsDataURL(file);
-  });
-
-  UI.el("removeImageBtn").addEventListener("click", () => {
-    pendingImage = null;
-    UI.el("imageUpload").value = "";
-    UI.el("imagePreviewWrap").classList.add("hidden");
   });
 }
 
-async function handleGenerate(overrideText, overrideImage) {
+function renderImagePreviews() {
+  const wrap = UI.el("imagePreviewWrap");
+  wrap.innerHTML = "";
+  wrap.classList.toggle("hidden", pendingImages.length === 0);
+
+  pendingImages.forEach((img, index) => {
+    const thumb = document.createElement("div");
+    thumb.className = "thumb";
+    thumb.innerHTML = `
+      <img alt="Gambar terlampir ${index + 1}" />
+      <button class="thumb-remove" type="button" aria-label="Hapus gambar ${index + 1}">×</button>
+    `;
+    thumb.querySelector("img").src = img.dataUrl;
+    thumb.querySelector(".thumb-remove").addEventListener("click", () => {
+      pendingImages.splice(index, 1);
+      renderImagePreviews();
+    });
+    wrap.appendChild(thumb);
+  });
+}
+
+function setupImageUpload() {
+  const input = UI.el("imageUpload");
+
+  input.addEventListener("change", async () => {
+    const files = Array.from(input.files || []);
+    input.value = ""; // supaya file yang sama bisa dipilih ulang nanti
+    if (files.length === 0) return;
+
+    const notes = [];
+    const slotsLeft = MAX_IMAGES - pendingImages.length;
+    if (slotsLeft <= 0) {
+      UI.showDocumentStatus(`Maksimal ${MAX_IMAGES} gambar. Hapus salah satu dulu kalau mau ganti.`);
+      return;
+    }
+
+    const accepted = files.slice(0, slotsLeft);
+    if (files.length > slotsLeft) {
+      notes.push(`Hanya ${slotsLeft} gambar pertama yang dipakai (maksimal ${MAX_IMAGES}).`);
+    }
+
+    for (const file of accepted) {
+      if (!file.type.startsWith("image/")) {
+        notes.push(`${file.name} bukan gambar, dilewati.`);
+        continue;
+      }
+      if (file.size > MAX_IMAGE_MB * 1024 * 1024) {
+        notes.push(`${file.name} lebih dari ${MAX_IMAGE_MB}MB, dilewati.`);
+        continue;
+      }
+      try {
+        pendingImages.push(await readImageFile(file));
+      } catch (err) {
+        notes.push(err.message);
+      }
+    }
+
+    renderImagePreviews();
+    if (notes.length) UI.showDocumentStatus(notes.join(" "));
+    else UI.clearDocumentStatus();
+  });
+}
+
+function setupDocumentUpload() {
+  const input = UI.el("documentUpload");
+
+  input.addEventListener("change", async () => {
+    const file = input.files[0];
+    if (!file) return;
+
+    UI.showDocumentStatus(`Membaca ${file.name}…`);
+    try {
+      const { text, truncated } = await FileParser.extractText(file);
+      pendingDocument = { filename: file.name, text, truncated };
+      UI.showDocumentPreview(file.name, truncated);
+    } catch (err) {
+      console.error(err);
+      UI.showDocumentStatus(err.message || "Gagal membaca dokumen. Coba file lain.");
+      input.value = "";
+      pendingDocument = null;
+    }
+  });
+
+  UI.el("removeDocumentBtn").addEventListener("click", () => {
+    pendingDocument = null;
+    input.value = "";
+    UI.hideDocumentPreview();
+  });
+}
+
+async function handleGenerate(overrideText, overrideImage, overrideDocument) {
   const textarea = UI.el("userInput");
   const isEditResend = overrideText !== undefined;
   const text = isEditResend ? overrideText : textarea.value.trim();
@@ -1025,19 +1316,32 @@ async function handleGenerate(overrideText, overrideImage) {
 
   const outputType = getSelectedValue("outputType", "outputTypeCustom");
   const targetModel = getSelectedValue("targetModel", "targetModelCustom");
-  const imageToSend = isEditResend ? overrideImage : pendingImage;
+  const imagesToSend = isEditResend ? (overrideImage || []) : pendingImages;
+  const documentToSend = isEditResend ? overrideDocument : pendingDocument;
 
   const turnIndex = conversation.length;
-  turnImages[turnIndex] = imageToSend;
+  turnImages[turnIndex] = imagesToSend;
+  turnDocuments[turnIndex] = documentToSend;
 
-  UI.appendUserBubble(text, turnIndex, (newText) => editTurn(turnIndex, newText));
-  conversation.push(PromptBuilder.buildUserContent(text, imageToSend));
+  let attachmentLabel = "";
+  const imageLabel = imagesToSend.length === 1 ? "1 gambar" : `${imagesToSend.length} gambar`;
+  if (imagesToSend.length && documentToSend) attachmentLabel = `📎 ${imageLabel} + 📄 ${documentToSend.filename}`;
+  else if (imagesToSend.length) attachmentLabel = `📎 ${imageLabel} terlampir`;
+  else if (documentToSend) attachmentLabel = `📄 ${documentToSend.filename}`;
+
+  UI.appendUserBubble(text, turnIndex, (newText) => editTurn(turnIndex, newText), attachmentLabel);
+
+  const apiText = PromptBuilder.buildApiText(text, documentToSend);
+  conversation.push(PromptBuilder.buildUserContent(apiText, imagesToSend));
 
   if (!isEditResend) {
     textarea.value = "";
-    pendingImage = null;
+    pendingImages = [];
+    pendingDocument = null;
     UI.el("imageUpload").value = "";
-    UI.el("imagePreviewWrap").classList.add("hidden");
+    UI.el("documentUpload").value = "";
+    renderImagePreviews();
+    UI.hideDocumentPreview();
   }
 
   UI.setGenerating(true);
@@ -1067,20 +1371,25 @@ async function handleGenerate(overrideText, overrideImage) {
       UI.renderHistory(updated);
       conversation = []; // topik selesai, siap untuk permintaan baru
       turnImages = {};
+      turnDocuments = {};
     }
   } catch (err) {
     console.error(err);
     // Gagal total (semua percobaan retry habis) — jangan buat user
-    // ngetik ulang dari nol. Kembalikan teks & gambar ke kotak dialog,
+    // ngetik ulang dari nol. Kembalikan teks & lampiran ke kotak dialog,
     // dan buang entri percakapan yang gagal supaya tidak dobel saat
     // dicoba lagi.
     conversation.pop();
     delete turnImages[turnIndex];
+    delete turnDocuments[turnIndex];
     textarea.value = text;
-    if (imageToSend) {
-      pendingImage = imageToSend;
-      UI.el("imagePreviewImg").src = `data:${imageToSend.mimeType};base64,${imageToSend.base64}`;
-      UI.el("imagePreviewWrap").classList.remove("hidden");
+    if (imagesToSend.length) {
+      pendingImages = imagesToSend;
+      renderImagePreviews();
+    }
+    if (documentToSend) {
+      pendingDocument = documentToSend;
+      UI.showDocumentPreview(documentToSend.filename, documentToSend.truncated);
     }
     UI.appendErrorBubble(err.message || "Ada yang salah, coba lagi sebentar lagi.");
   } finally {
@@ -1096,11 +1405,15 @@ async function handleGenerate(overrideText, overrideImage) {
  * baru — persis seperti perilaku edit pesan di ChatGPT/Claude.
  */
 function editTurn(turnIndex, newText) {
-  const imageToReuse = turnImages[turnIndex] || null;
+  const imagesToReuse = turnImages[turnIndex] || [];
+  const documentToReuse = turnDocuments[turnIndex] || null;
 
   conversation = conversation.slice(0, turnIndex);
   Object.keys(turnImages).forEach((key) => {
     if (Number(key) >= turnIndex) delete turnImages[key];
+  });
+  Object.keys(turnDocuments).forEach((key) => {
+    if (Number(key) >= turnIndex) delete turnDocuments[key];
   });
 
   const chatLog = UI.el("chatLog");
@@ -1112,7 +1425,7 @@ function editTurn(turnIndex, newText) {
     node = next;
   }
 
-  handleGenerate(newText, imageToReuse);
+  handleGenerate(newText, imagesToReuse, documentToReuse);
 }
 
 function setupHistory() {
@@ -1129,6 +1442,7 @@ function init() {
   setupCustomFieldToggle("targetModel", "targetModelCustom");
   setupCustomFieldToggle("modelSelect", "modelCustom");
   setupImageUpload();
+  setupDocumentUpload();
   setupHistory();
 
   UI.el("generateBtn").addEventListener("click", () => handleGenerate());
